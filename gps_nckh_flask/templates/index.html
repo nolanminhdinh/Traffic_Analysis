@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GPS NCKH 2025 - Phạm Nguyễn Tuấn</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            animation: fadeInDown 0.8s ease;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            animation: fadeInUp 0.8s ease;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 25px 0;
+        }
+        
+        button {
+            padding: 18px 45px;
+            font-size: 18px;
+            font-weight: 600;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        #btn-get {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        #btn-get:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(245,87,108,0.4);
+        }
+        
+        #btn-send {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        
+        #btn-send:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(79,172,254,0.4);
+        }
+        
+        #btn-send:disabled {
+            background: linear-gradient(135deg, #bbb 0%, #999 100%);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        #status {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            padding: 25px;
+            border-radius: 15px;
+            margin: 20px 0;
+            min-height: 80px;
+            color: #333;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        #status b {
+            color: #667eea;
+            font-size: 1.2em;
+        }
+        
+        pre {
+            background: #2d3748;
+            color: #68d391;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: left;
+            font-size: 14px;
+            margin: 15px 0;
+            overflow-x: auto;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .map-container {
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            margin: 20px 0;
+        }
+        
+        #preview-map {
+            width: 100%;
+            height: 450px;
+        }
+        
+        #final-map {
+            width: 100%;
+            height: 600px;
+        }
+        
+        .info-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin: 5px;
+            font-weight: 500;
+        }
+        
+        .success-message {
+            color: #48bb78 !important;
+            font-size: 1.3em !important;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.8em; }
+            button { padding: 15px 30px; font-size: 16px; }
+            .card { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛰️ GPS TRACKING SYSTEM</h1>
+            <p>Hệ thống theo dõi vị trí GPS thực tế - NCKH 2025</p>
+            <span class="info-badge">Phạm Nguyễn Tuấn</span>
+        </div>
+        
+        <div class="card">
+            <div id="status">
+                <b>📍 Sẵn sàng</b><br>
+                Nhấn nút bên dưới để lấy vị trí GPS thực tế từ thiết bị của bạn
+            </div>
+            
+            <div class="button-group">
+                <button id="btn-get" onclick="getGPS()">
+                    📡 Lấy vị trí GPS
+                </button>
+                <button id="btn-send" onclick="sendToServer()" disabled>
+                    ☁️ Gửi về Server
+                </button>
+            </div>
+        </div>
+        
+        <div class="map-container" id="preview-container" style="display:none;">
+            <div id="preview-map"></div>
+        </div>
+        
+        <div class="map-container" id="final-container" style="display:none;">
+            <div id="final-map"></div>
+        </div>
+    </div>
+
+    <script>
+    let currentGPS = null;
+
+    function getGPS() {
+        const status = document.getElementById("status");
+        status.innerHTML = '<div class="loading"></div><b>Đang lấy vị trí GPS...</b><br>Vui lòng đợi trong giây lát';
+
+        if (!navigator.geolocation) {
+            status.innerHTML = "<b>❌ Lỗi</b><br>Trình duyệt không hỗ trợ GPS";
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                const acc = pos.coords.accuracy.toFixed(1);
+
+                currentGPS = {
+                    gps_id: "G" + Date.now().toString().slice(-6),
+                    device_id: "TUAN001",
+                    timestamp: new Date().toISOString().slice(0,19),
+                    latitude: parseFloat(lat.toFixed(6)),
+                    longitude: parseFloat(lon.toFixed(6)),
+                    speed: parseFloat((Math.random() * 60 + 5).toFixed(1)),
+                    day_type: new Date().getDay() < 5 ? "weekday" : "weekend"
+                };
+
+                status.innerHTML = `
+                    <b class="success-message">✅ Lấy GPS thành công!</b><br>
+                    <span class="info-badge">Độ chính xác: ${acc}m</span>
+                    <pre>${JSON.stringify(currentGPS, null, 2)}</pre>
+                    <b style="color:#4facfe;">👇 Bấm nút "Gửi về Server" để lưu dữ liệu</b>
+                `;
+
+                // Hiển thị bản đồ preview
+                const previewContainer = document.getElementById("preview-container");
+                previewContainer.style.display = "block";
+                const previewMap = document.getElementById("preview-map");
+                previewMap.innerHTML = "";
+                
+                const map = L.map(previewMap).setView([lat, lon], 18);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+                
+                L.marker([lat, lon]).addTo(map)
+                    .bindPopup(`<b>📍 Vị trí hiện tại</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br><i>Chưa gửi server</i>`)
+                    .openPopup();
+
+                document.getElementById("btn-send").disabled = false;
+            },
+            err => {
+                status.innerHTML = `
+                    <b>❌ Lỗi GPS</b><br>
+                    Mã lỗi: ${err.code}<br>
+                    Chi tiết: ${err.message}<br>
+                    <small>💡 Hãy bật Location trong cài đặt và cho phép trình duyệt truy cập vị trí</small>
+                `;
+            },
+            { enableHighAccuracy: true, timeout: 30000 }
+        );
+    }
+
+    function sendToServer() {
+        if (!currentGPS) return;
+
+        const status = document.getElementById("status");
+        status.innerHTML = '<div class="loading"></div><b>Đang gửi dữ liệu về server...</b>';
+
+        fetch("/save_gps", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(currentGPS)
+        })
+        .then(r => r.json())
+        .then(data => {
+            status.innerHTML = `
+                <b class="success-message">✅ Gửi thành công!</b><br>
+                ${data.message}<br>
+                <span class="info-badge">ID: ${currentGPS.gps_id}</span>
+            `;
+            
+            const finalContainer = document.getElementById("final-container");
+            finalContainer.style.display = "block";
+            document.getElementById("final-map").innerHTML = data.map_html;
+            document.getElementById("btn-send").disabled = true;
+        })
+        .catch(err => {
+            status.innerHTML = `
+                <b>❌ Lỗi kết nối</b><br>
+                Không thể kết nối đến server<br>
+                <small>${err.message}</small>
+            `;
+        });
+    }
+    </script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</body>
+</html>
