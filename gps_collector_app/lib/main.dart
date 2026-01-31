@@ -34,20 +34,25 @@ class GPSCollectorScreen extends StatefulWidget {
 class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
   Position? _currentPosition;
   List<Map<String, dynamic>> _gpsDataList = [];
+  List<LatLng> _routePoints = [];
   Timer? _timer;
+  StreamSubscription<Position>? _positionStreamSubscription;
   int _remainingSeconds = 0;
   bool _isCollecting = false;
   String _status = "Nhấn nút để bắt đầu thu thập GPS trong 30 giây";
 
+  final MapController _mapController = MapController();
+
   // Thay bằng IP máy tính chạy Flask
   // Emulator: 10.0.2.2
-  // Điện thoại thật: IP LAN (ví dụ: 192.168.1.100)
-  final String serverUrl = "http://127.0.0.1:5000/save_gps"; // Emulator
+  // Thiết bị thật: IP của máy tính (vd: 192.168.1.100)
+  final String serverUrl = "http://10.0.2.2:5000/save_gps";
 
   @override
   void initState() {
     super.initState();
     _checkLocationPermission();
+    _startLocationTracking(); // Bắt đầu theo dõi vị trí liên tục
   }
 
   Future<void> _checkLocationPermission() async {
@@ -65,6 +70,41 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
         return;
       }
     }
+
+    if (permission == LocationPermission.deniedForever) {
+      setState(() => _status = "Quyền truy cập vị trí bị từ chối vĩnh viễn");
+      return;
+    }
+  }
+
+  // Theo dõi vị trí liên tục
+  void _startLocationTracking() {
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 0, // Cập nhật mỗi khi có thay đổi
+    );
+
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: locationSettings,
+        ).listen((Position position) {
+          setState(() {
+            _currentPosition = position;
+          });
+
+          // Tự động cập nhật bản đồ theo vị trí thực
+          try {
+            _mapController.move(
+              LatLng(position.latitude, position.longitude),
+              _mapController.camera.zoom,
+            );
+          } catch (e) {
+            // MapController chưa được khởi tạo
+          }
+
+          print("Vị trí cập nhật: ${position.latitude}, ${position.longitude}");
+          print("Độ chính xác: ${position.accuracy}m");
+        });
   }
 
   void _startCollecting() {
@@ -74,11 +114,19 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
       _isCollecting = true;
       _remainingSeconds = 30;
       _gpsDataList = [];
+      _routePoints = [];
       _status = "Đang thu thập GPS... (30 giây)";
     });
 
+    // Lấy và gửi ngay lập tức (lần 1)
+    _getAndSendGPS();
+
     // Gửi mỗi 5 giây
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      setState(() {
+        _remainingSeconds -= 5;
+      });
+
       if (_remainingSeconds <= 0) {
         _stopCollecting();
         return;
@@ -86,22 +134,25 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
 
       await _getAndSendGPS();
       setState(() {
-        _remainingSeconds -= 5;
         _status = "Đang thu thập... ($_remainingSeconds giây còn lại)";
       });
     });
-
-    // Lấy và gửi ngay lập tức (lần 1)
-    _getAndSendGPS();
   }
 
   Future<void> _getAndSendGPS() async {
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      // Sử dụng vị trí hiện tại từ stream nếu có
+      Position position =
+          _currentPosition ??
+          await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 10),
+          );
 
-      setState(() => _currentPosition = position);
+      setState(() {
+        _currentPosition = position;
+        _routePoints.add(LatLng(position.latitude, position.longitude));
+      });
 
       // Tạo dữ liệu gửi về server
       final gpsData = {
@@ -118,15 +169,22 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
       _gpsDataList.add(gpsData);
 
       // Gửi POST đến Flask
-      final response = await http.post(
-        Uri.parse(serverUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(gpsData),
-      );
+      try {
+        final response = await http
+            .post(
+              Uri.parse(serverUrl),
+              headers: {"Content-Type": "application/json"},
+              body: jsonEncode(gpsData),
+            )
+            .timeout(const Duration(seconds: 5));
 
-      print(
-        "Gửi thành công: ${gpsData['gps_id']} - Status: ${response.statusCode}",
-      );
+        print(
+          "Gửi thành công: ${gpsData['gps_id']} - Status: ${response.statusCode}",
+        );
+      } catch (e) {
+        print("Lỗi kết nối server: $e");
+        // Vẫn lưu dữ liệu local
+      }
     } catch (e) {
       print("Lỗi GPS: $e");
       setState(() => _status = "Lỗi: $e");
@@ -144,7 +202,27 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("GPS Collector"), centerTitle: true),
+      appBar: AppBar(
+        title: const Text("GPS Collector"),
+        centerTitle: true,
+        actions: [
+          // Nút center vị trí hiện tại
+          if (_currentPosition != null)
+            IconButton(
+              icon: const Icon(Icons.my_location),
+              onPressed: () {
+                _mapController.move(
+                  LatLng(
+                    _currentPosition!.latitude,
+                    _currentPosition!.longitude,
+                  ),
+                  16,
+                );
+              },
+              tooltip: "Về vị trí hiện tại",
+            ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -176,17 +254,54 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
             ),
             const SizedBox(height: 20),
             if (_currentPosition != null) ...[
-              const Text(
-                "Vị trí hiện tại:",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              Text("Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}"),
-              Text("Lon: ${_currentPosition!.longitude.toStringAsFixed(6)}"),
-              Text(
-                "Tốc độ: ${(_currentPosition!.speed * 3.6).toStringAsFixed(1)} km/h",
-              ),
-              Text(
-                "Độ chính xác: ${_currentPosition!.accuracy.toStringAsFixed(1)} m",
+              Card(
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Vị trí hiện tại:",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}",
+                                ),
+                                Text(
+                                  "Lon: ${_currentPosition!.longitude.toStringAsFixed(6)}",
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Tốc độ: ${(_currentPosition!.speed * 3.6).toStringAsFixed(1)} km/h",
+                                ),
+                                Text(
+                                  "Độ chính xác: ${_currentPosition!.accuracy.toStringAsFixed(1)} m",
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 20),
@@ -196,32 +311,90 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
                   elevation: 4,
                   clipBehavior: Clip.antiAlias,
                   child: FlutterMap(
+                    mapController: _mapController,
                     options: MapOptions(
                       initialCenter: LatLng(
                         _currentPosition!.latitude,
                         _currentPosition!.longitude,
                       ),
-                      initialZoom: 15,
+                      initialZoom: 17,
+                      minZoom: 5,
+                      maxZoom: 19,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.all,
+                      ),
                     ),
                     children: [
                       TileLayer(
                         urlTemplate:
                             'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.example.app',
+                        userAgentPackageName: 'com.example.gps_collector_app',
+                        maxZoom: 19,
                       ),
+                      // Vẽ đường đi
+                      if (_routePoints.length > 1)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _routePoints,
+                              color: Colors.blue,
+                              strokeWidth: 4.0,
+                            ),
+                          ],
+                        ),
+                      // Các markers
                       MarkerLayer(
                         markers: [
+                          // Điểm bắt đầu
+                          if (_routePoints.length > 1)
+                            Marker(
+                              point: _routePoints.first,
+                              width: 35,
+                              height: 35,
+                              child: const Icon(
+                                Icons.flag,
+                                color: Colors.green,
+                                size: 35,
+                              ),
+                            ),
+                          // Vị trí hiện tại
                           Marker(
                             point: LatLng(
                               _currentPosition!.latitude,
                               _currentPosition!.longitude,
                             ),
-                            width: 40,
-                            height: 40,
-                            child: const Icon(
-                              Icons.location_pin,
-                              color: Colors.red,
-                              size: 40,
+                            width: 60,
+                            height: 60,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Vòng tròn độ chính xác
+                                Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.blue.withOpacity(0.15),
+                                    border: Border.all(
+                                      color: Colors.blue.withOpacity(0.6),
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                                // Vòng trong
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.blue,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 3,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -233,7 +406,7 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
             const SizedBox(height: 20),
             Text(
               "Đã thu thập và gửi: ${_gpsDataList.length} điểm",
-              style: const TextStyle(fontSize: 16),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
           ],
@@ -245,6 +418,7 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _positionStreamSubscription?.cancel();
     super.dispose();
   }
 }
