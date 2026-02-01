@@ -44,9 +44,10 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
   final MapController _mapController = MapController();
 
   // Thay bằng IP máy tính chạy Flask
-  // Emulator: 10.0.2.2
+  // Web browser: http://localhost:5000 hoặc http://127.0.0.1:5000
+  // Android Emulator: 10.0.2.2
   // Thiết bị thật: IP của máy tính (vd: 192.168.1.100)
-  final String serverUrl = "http://10.0.2.2:5000/save_gps";
+  final String serverUrl = "http://localhost:5000/save_gps"; // For Web/Desktop
 
   @override
   void initState() {
@@ -85,26 +86,28 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
     );
 
     _positionStreamSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: locationSettings,
-        ).listen((Position position) {
-          setState(() {
-            _currentPosition = position;
-          });
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (Position position) {
+            setState(() {
+              _currentPosition = position;
+            });
 
-          // Tự động cập nhật bản đồ theo vị trí thực
-          try {
-            _mapController.move(
-              LatLng(position.latitude, position.longitude),
-              _mapController.camera.zoom,
+            // Tự động cập nhật bản đồ theo vị trí thực
+            try {
+              _mapController.move(
+                LatLng(position.latitude, position.longitude),
+                _mapController.camera.zoom,
+              );
+            } catch (e) {
+              // MapController chưa được khởi tạo
+            }
+
+            print(
+              "📍 Vị trí cập nhật: ${position.latitude}, ${position.longitude}",
             );
-          } catch (e) {
-            // MapController chưa được khởi tạo
-          }
-
-          print("Vị trí cập nhật: ${position.latitude}, ${position.longitude}");
-          print("Độ chính xác: ${position.accuracy}m");
-        });
+            print("🎯 Độ chính xác: ${position.accuracy}m");
+          },
+        );
   }
 
   void _startCollecting() {
@@ -155,10 +158,13 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
       });
 
       // Tạo dữ liệu gửi về server
+      // Đảm bảo timestamp luôn là giờ Việt Nam (GMT+7)
+      final vietnamTime = DateTime.now().toUtc().add(const Duration(hours: 7));
+
       final gpsData = {
         "gps_id": "G${DateTime.now().millisecondsSinceEpoch}",
         "device_id": "TUAN001",
-        "timestamp": DateTime.now().toUtc().toIso8601String(),
+        "timestamp": vietnamTime.toIso8601String().replaceAll('Z', '+07:00'),
         "latitude": position.latitude,
         "longitude": position.longitude,
         "speed": position.speed * 3.6, // km/h
@@ -178,16 +184,31 @@ class _GPSCollectorScreenState extends State<GPSCollectorScreen> {
             )
             .timeout(const Duration(seconds: 5));
 
+        if (response.statusCode == 200) {
+          print("✅ Gửi thành công: ${gpsData['gps_id']}");
+        } else {
+          print("⚠️ Server trả về lỗi: ${response.statusCode}");
+        }
+      } on TimeoutException {
         print(
-          "Gửi thành công: ${gpsData['gps_id']} - Status: ${response.statusCode}",
+          "⚠️ Timeout: Không kết nối được server (${_gpsDataList.length} điểm đã lưu local)",
+        );
+      } on http.ClientException {
+        print(
+          "⚠️ Lỗi kết nối: Server chưa chạy hoặc sai URL (${_gpsDataList.length} điểm đã lưu local)",
         );
       } catch (e) {
-        print("Lỗi kết nối server: $e");
-        // Vẫn lưu dữ liệu local
+        print(
+          "⚠️ Lỗi gửi dữ liệu: $e (${_gpsDataList.length} điểm đã lưu local)",
+        );
       }
     } catch (e) {
-      print("Lỗi GPS: $e");
-      setState(() => _status = "Lỗi: $e");
+      print("❌ Lỗi GPS: $e");
+      if (mounted) {
+        setState(
+          () => _status = "Lỗi GPS: ${e.toString().substring(0, 50)}...",
+        );
+      }
     }
   }
 
