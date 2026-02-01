@@ -5,17 +5,17 @@ import folium
 from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)  
+CORS(app)  # Cho phép Flutter app kết nối từ thiết bị khác
 
 # --- CẤU HÌNH KẾT NỐI DATABASE ---
 def get_connection():
     return psycopg2.connect(
         host="ep-old-voice-a1mw52bq-pooler.ap-southeast-1.aws.neon.tech",
         port="5432",
-        database="neondb",  
+        database="neondb",  # Database mặc định của Neon
         user="neondb_owner",  
         password="npg_MQb4CymvOSs5",
-        sslmode="require"  
+        sslmode="require"  # Bắt buộc SSL cho Neon
     )
 
 @app.route("/")
@@ -43,30 +43,27 @@ def save_gps():
         conn = get_connection()
         cur = conn.cursor()
 
-        # 3. Câu lệnh SQL khớp với cấu trúc bảng thực tế
-        # Chỉ INSERT các cột tồn tại: timestamp, latitude, longitude, day_type, accuracy_m, device_id, speed
+        # 3. Câu lệnh SQL - chỉ lưu vehicle_id, timestamp và geom
+        # speed_kmh và heading để NULL vì không cần thiết hiện tại
         query = """
             INSERT INTO vehicle_gps 
-            (timestamp, latitude, longitude, day_type, accuracy_m, device_id, speed)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (vehicle_id, timestamp, speed_kmh, heading, geom)
+            VALUES (%s, %s, NULL, NULL, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
             RETURNING gps_id;
         """
         
         cur.execute(query, (
-            gps_data["timestamp"],              # timestamp
-            gps_data["latitude"],               # latitude
-            gps_data["longitude"],              # longitude
-            gps_data.get("day_type"),           # day_type
-            gps_data.get("accuracy_m", 0),      # accuracy_m
-            gps_data["device_id"],              # device_id
-            gps_data["speed"]                   # speed
+            gps_data["device_id"],      # vehicle_id
+            gps_data["timestamp"],      # timestamp
+            gps_data["longitude"],      # X cho geom (lon, lat)
+            gps_data["latitude"]        # Y cho geom
         ))
 
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
 
-        print(f" Đã lưu thành công GPS_ID: {new_id} vào database")
+        print(f"✅ Đã lưu thành công GPS_ID: {new_id} vào database")
 
         # 4. Tạo bản đồ báo cáo
         m = folium.Map(
@@ -93,7 +90,7 @@ def save_gps():
             "gps_id": new_id,
             "device_id": gps_data["device_id"],
             "map_html": m._repr_html_(),
-            "message": f" Đã lưu GPS_ID {new_id} vào database thành công!",
+            "message": f"✅ Đã lưu GPS_ID {new_id} vào database thành công!",
             "data_saved": {
                 "latitude": gps_data["latitude"],
                 "longitude": gps_data["longitude"],
@@ -103,7 +100,7 @@ def save_gps():
         }), 200
 
     except KeyError as e:
-        error_msg = f" Thiếu trường dữ liệu: {str(e)}"
+        error_msg = f"❌ Thiếu trường dữ liệu: {str(e)}"
         print(error_msg)
         return jsonify({
             "status": "error",
@@ -114,7 +111,7 @@ def save_gps():
     except psycopg2.Error as e:
         if conn:
             conn.rollback()
-        error_msg = f" Lỗi Database: {str(e)}"
+        error_msg = f"❌ Lỗi Database: {str(e)}"
         print(error_msg)
         return jsonify({
             "status": "error",
@@ -125,7 +122,7 @@ def save_gps():
     except Exception as e:
         if conn:
             conn.rollback()
-        error_msg = f" Lỗi không xác định: {str(e)}"
+        error_msg = f"❌ Lỗi không xác định: {str(e)}"
         print(error_msg)
         return jsonify({
             "status": "error",
@@ -162,11 +159,11 @@ def health_check():
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print(" GPS Collector Flask Server")
+    print("🚀 GPS Collector Flask Server")
     print("="*60)
-    print(" Server URL: http://127.0.0.1:5000")
-    print(" Emulator URL: http://10.0.2.2:5000")
-    print(" Health Check: http://127.0.0.1:5000/health")
+    print("📍 Server URL: http://127.0.0.1:5000")
+    print("📍 Emulator URL: http://10.0.2.2:5000")
+    print("📍 Health Check: http://127.0.0.1:5000/health")
     print("="*60 + "\n")
     
     # Lắng nghe trên tất cả network interfaces để thiết bị thật có thể kết nối
