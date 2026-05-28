@@ -1,0 +1,18 @@
+# Traffic Analysis Pipeline — Python dependencies
+
+# Kafka
+confluent-kafka==2.3.0
+
+# Flask API Gateway
+flask==3.0.0
+flask-cors==4.0.0
+
+# MinIO / S3
+boto3==1.34.0
+
+# Parquet
+pyarrow==14.0.1
+pandas==2.1.4
+
+# PostgreSQL
+psycopg2-binary==2.9.9
