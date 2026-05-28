@@ -37,8 +37,8 @@ KAFKA_CONF = {
 }
 MINIO_CONF = {
     "endpoint_url":          "http://localhost:9000",
-    "aws_access_key_id":     "minioadmin",
-    "aws_secret_access_key": "minioadmin123",
+    "aws_access_key_id":     "tk", #tài khoản đã đăng ký
+    "aws_secret_access_key": "password", #mật khẩu đăng ký tài khoản
     "config":                Config(signature_version="s3v4"),
     "region_name":           "us-east-1",
 }
