@@ -1,145 +1,162 @@
-# Traffic Analysis Pipeline — Hướng dẫn chạy
+# 🚦 Traffic Analysis Pipeline — Hướng dẫn Vận hành Backend
 
-## Kiến trúc 2 luồng song song
+Module này chứa toàn bộ hệ thống đường ống dữ liệu (Data Pipeline) từ khâu tiếp nhận (Ingestion), lưu trữ đệm phân tán (Message Streaming & Object Storage Lake) đến khâu trích xuất, chuyển đổi và phân tích (ETL & Analytical Warehouse).
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  LUỒNG THẬT (Production)          LUỒNG MOCK (Testing)          │
-│                                                                 │
-│  [Flutter App]                    [mock_producer.py]             │
-│       │ POST /save_gps                  │ Kafka produce          │
-│       ▼                                 ▼                        │
-│  [app.py - Flask]          ────►  [Apache Kafka]  ◄────          │
-│       │ produce                         │                        │
-│       ▼                                 │                        │
-│  [Apache Kafka]                         │                        │
-│       │                                 │                        │
-│       └──────────┬──────────────────────┘                        │
-│                  ▼                                              │
-│         [ingestion_worker.py]                                   │
-│           Kafka → Parquet → MinIO                               │
-│                  │                                              │
-│         ┌────────┴────────┐                                     │
-│         ▼                 ▼                                     │
-│  etl_worker.py     etl_worker.py --local                        │
-│  (CLOUD Neon)      (LOCAL Docker)                               │
-│         │                 │                                     │
-│         ▼                 ▼                                     │
-│  [Neon DB ☁️]       [PostgreSQL 🏠]                              │
-│  Data thật          Data mock/test                              │
-│  Schema đồng bộ ←→ Schema đồng bộ                               │
-└─────────────────────────────────────────────────────────────────┘
+---
+
+## 🏛️ Kiến trúc 2 luồng hoạt động độc lập
+
+Hệ thống được thiết kế hỗ trợ song song hai môi trường:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  LUỒNG SẢN XUẤT (Production Cloud)           LUỒNG KIỂM THỬ (Mock / Testing)    │
+│                                                                                 │
+│  [Flutter Mobile App]                             [mock_producer.py]            │
+│         │ POST /save_gps                                  │                     │
+│         ▼                                                 │ Kafka Produce       │
+│  [app.py - API Gateway]                                   │                     │
+│         │ Kafka Produce                                   │                     │
+│         ▼                                                 ▼                     │
+│  ┌─────────────────────────────────────────────────────────────┐                │
+│  │              Apache Kafka (gps_stream_topic)                │                │
+│  └─────────────────────────────────────────────────────────────┘                │
+│                                 │                                               │
+│                                 ▼                                               │
+│                       [ingestion_worker.py]                                     │
+│                        (Kafka → Parquet)                                        │
+│                                 │                                               │
+│                                 ▼                                               │
+│                      [MinIO S3 Data Lake]                                       │
+│                      ├── prod/gps/year=.../*.parquet                            │
+│                      └── mock/gps/year=.../*.parquet                            │
+│                                 │                                               │
+│            ┌────────────────────┴─────────────────────┐                         │
+│            ▼                                          ▼                         │
+│   [etl_worker.py]                            [etl_worker.py --local]            │
+│   (Xử lý Data thật)                          (Xử lý Data giả lập)               │
+│            │                                          │                         │
+│            ▼                                          ▼                         │
+│    [Neon Postgres ☁️]                        [TimescaleDB Docker 🏠]            │
+│    (Database Cloud)                          (Database Local - Cổng 5433)       │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Schema hợp nhất — `unified_schema.sql`
+## 📁 Cấu trúc Thư mục
 
-Cả 2 DB dùng **chung 1 file schema**. Các bảng:
-
-| Bảng | Mô tả |
-|---|---|
-| `intersections` | Nút giao thông tĩnh |
-| `traffic_lights` | Đèn giao thông + tọa độ + cài đặt mặc định |
-| `light_schedule` | Lịch điều khiển đèn theo khung giờ |
-| `time_dimension` | Chiều thời gian (theo giờ, có time_window, season) |
-| `vehicle_gps` | GPS thực tế từ app (partitioned theo tháng) |
-| `congestion_analysis` | Kết quả phân tích ETL |
+```text
+traffic_analysis/
+├── app.py                      # Flask API Gateway tiếp nhận GPS từ thiết bị
+├── docker-compose.yml          # Triển khai Kafka, MinIO, TimescaleDB
+├── unified_schema.sql          # Lược đồ DDL cơ sở dữ liệu PostGIS hợp nhất
+├── requirements.txt            # Danh sách thư viện Python cần thiết
+├── .env.example                # File cấu hình mẫu các biến môi trường
+├── .env                        # File biến môi trường thực tế (được gitignore)
+├── readme.md                   # Tài liệu hướng dẫn riêng cho module backend
+└── kafka/
+    ├── ingestion_worker.py     # Consumer lấy dữ liệu từ Kafka ghi vào MinIO (Parquet)
+    ├── etl_worker.py           # Worker định kỳ nạp Parquet vào DB và suy luận ùn tắc
+    └── test/
+        └── mock_producer.py    # Script mô phỏng dữ liệu GPS kiểm thử tải
+```
 
 ---
 
-## Setup lần đầu
+## ⚙️ Cài đặt & Khởi chạy lần đầu
 
-### 1. Khởi động Docker (Kafka + MinIO + PostgreSQL local)
+### Bước 1: Chuẩn bị môi trường Python
+Khuyến nghị tạo môi trường ảo Python 3.10+:
+```bash
+python -m venv venv
+# Trên Windows:
+.\venv\Scripts\activate
+# Trên Linux/macOS:
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### Bước 2: Thiết lập biến môi trường `.env`
+Sao chép file cấu hình mẫu và điều chỉnh thông tin nếu cần:
+```bash
+copy .env.example .env     # Windows PowerShell / CMD
+# hoặc: cp .env.example .env (Linux/macOS)
+```
+> **Ghi chú bảo mật:** File `.env` chứa mật khẩu kết nối database và access key đã được đưa vào `.gitignore`, tuyệt đối không đẩy lên kho mã nguồn công khai.
+
+### Bước 3: Khởi động cụm dịch vụ qua Docker Compose
 ```bash
 docker compose up -d
-sleep 20
 ```
+Kiểm tra các container đang chạy:
+- **Apache Kafka**: Cổng `9092` (Client) & `29092` (Internal)
+- **MinIO Object Storage**: Cổng `9000` (S3 API) & `9001` (Web Console: http://localhost:9001, User/Pass: `admin` / `admin123`)
+- **TimescaleDB (PostgreSQL 15 + PostGIS)**: Cổng `5433` (User: `admin`, Pass: `admin123`, DB: `traffic_analytics`)
 
-### 2. Chạy schema lên CẢ 2 database
+### Bước 4: Khởi tạo Lược đồ Cơ sở dữ liệu (`unified_schema.sql`)
 
-**Neon Cloud:**
-```bash
-psql "***" -f unified_schema.sql
-```
-
-**Local Docker:**
+* **Khởi tạo trên Local Docker:**
 ```bash
 docker cp unified_schema.sql traffic_db:/tmp/
 docker exec -i traffic_db psql -U admin -d traffic_analytics -f /tmp/unified_schema.sql
 ```
 
-### 3. Cài Python dependencies
+* **Khởi tạo trên Neon Cloud:**
 ```bash
-pip install -r requirements.txt
+psql "postgresql://neondb_owner:<YOUR_PASSWORD>@ep-old-voice-a1mw52bq-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require" -f unified_schema.sql
 ```
 
 ---
 
-## Chạy pipeline hằng ngày
+## 🚀 Hướng dẫn Chạy Pipeline
 
-### Luồng THẬT (data từ Flutter App → Neon Cloud)
+### Cách 1: Chạy Luồng Kiểm Thử Giả Lập (Local Testing Flow)
+Không cần cài đặt app di động, dùng script sinh dữ liệu giả lập 50 phương tiện di chuyển trên đường Phạm Văn Đồng:
 
 ```bash
-# Terminal 1 — Flask API Gateway
+# Terminal 1 — Ingestion Worker gom data ghi vào MinIO (chế độ local)
+python kafka/ingestion_worker.py --local
+
+# Terminal 2 — ETL Worker đọc Parquet và ghi vào TimescaleDB Local
+python kafka/etl_worker.py --local
+
+# Terminal 3 — Sinh dữ liệu giả lập đẩy vào Kafka
+python kafka/test/mock_producer.py --vehicles 50 --interval 1.0
+```
+
+### Cách 2: Chạy Luồng Dữ Liệu Thật (Production Cloud Flow)
+Dành cho dữ liệu thực tế thu thập từ ứng dụng Flutter `gps_collector_app`:
+
+```bash
+# Terminal 1 — Cổng Flask API Gateway nhận request từ thiết bị di động
 python app.py
 
-# Terminal 2 — Ingestion Worker (Kafka → MinIO)
-python ingestion_worker.py
+# Terminal 2 — Ingestion Worker ghi vào thư mục prod/ trên MinIO
+python kafka/ingestion_worker.py
 
-# Terminal 3 — ETL → Neon Cloud
-python etl_worker.py
-```
-
-Mở Flutter App → nhấn **Bắt đầu thu thập**.
-
----
-
-### Luồng MOCK (data giả lập → Local Docker)
-
-```bash
-# Terminal 1 — Mock Producer (không cần app.py)
-python mock_producer.py
-
-# Terminal 2 — Ingestion Worker (dùng chung với luồng thật)
-python ingestion_worker.py --local #gắn cờ local để tách giữa dữ liệu thật và giữa liệu giả lập 
-
-# Terminal 3 — ETL → Local DB
-python etl_worker.py --local #gắn cờ xác định đọc dữ liệu giả lập và lưu nó tại database trên local
+# Terminal 3 — ETL Worker nạp dữ liệu và suy luận trực tiếp lên Neon Cloud
+python kafka/etl_worker.py
 ```
 
 ---
 
-## Chạy song song CẢ HAI luồng cùng lúc
+## 🔍 Kiểm tra Kết quả & Giám sát
 
+1. **Kiểm tra trạng thái API Gateway:**
+   Mở trình duyệt truy cập: `http://localhost:5000/health`
+
+2. **Kiểm tra MinIO Data Lake:**
+   Truy cập http://localhost:9001 (Tài khoản: `admin` / `admin123`). Kiểm tra bucket `traffic-lake`, xem các file `.parquet` được lưu theo cấu trúc cây thư mục thời gian.
+
+3. **Kiểm tra kết quả phân tích ùn tắc trên Database Local:**
 ```bash
-# Terminal 1: Flask cho app thật
-python app.py
-
-# Terminal 2: Mock producer cho test
-python mock_producer.py
-
-# Terminal 3: Ingestion worker (xử lý cả 2 nguồn)
-python ingestion_worker.py
-
-# Terminal 4: ETL → Neon Cloud (data thật)
-python etl_worker.py
-
-# Terminal 5: ETL → Local (data mock)
-python etl_worker.py --local
+docker exec -i traffic_db psql -U admin -d traffic_analytics -c "
+  SELECT traffic_light_id, time_window, avg_speed_kmh, vehicle_count, 
+         congestion_label, is_inefficient, analysis_time 
+  FROM congestion_analysis 
+  ORDER BY analysis_time DESC 
+  LIMIT 10;
+"
 ```
-
-> **Lưu ý:** ingestion_worker dùng `group.id` riêng → cả 2 ETL worker đều nhận đủ data từ Kafka.
-
----
-
-## Kiểm tra kết quả
-
-
-
-**Local Docker:**
-```bash
-docker exec -i traffic_db psql -U admin -d traffic_analytics \
-  -c "SELECT traffic_light_id, time_window, congestion_label, congestion_level, is_inefficient, analysis_time FROM congestion_analysis ORDER BY analysis_time DESC LIMIT 10;"
-```
-

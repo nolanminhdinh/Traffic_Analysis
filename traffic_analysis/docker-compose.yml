@@ -2,18 +2,25 @@ services:
   postgres-db:
     image: timescale/timescaledb-ha:pg15-latest
     container_name: traffic_db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin123
-      POSTGRES_DB: traffic_analytics
+      POSTGRES_USER: ${LOCAL_DB_USER:-admin}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-admin123}
+      POSTGRES_DB: ${LOCAL_DB_NAME:-traffic_analytics}
     ports:
-      - "5433:5432"
+      - "${LOCAL_DB_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LOCAL_DB_USER:-admin} -d ${LOCAL_DB_NAME:-traffic_analytics}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/confluent-local:7.5.0
     container_name: traffic_kafka
+    restart: unless-stopped
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -34,13 +41,14 @@ services:
   minio:
     image: minio/minio:latest
     container_name: traffic_minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web Console → http://localhost:9001
+      - "9000:9000"   # MinIO S3 API Endpoint
+      - "9001:9001"   # MinIO Web Console -> http://localhost:9001
     environment:
-      MINIO_ROOT_USER: *** #tài khoản minio
-      MINIO_ROOT_PASSWORD: *** #mật khẩu đăng nhập
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-admin123}
     volumes:
       - minio_data:/data
 
